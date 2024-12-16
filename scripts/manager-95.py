@@ -6,7 +6,7 @@ class ClientManager:
         self.count = count
         self.process_times = []
         self.clients_config = [
-            (49769, 5000, 2),
+            (49769, 5000, 2), # update before running this script
         ]
 
     def run_client(self, e_router_port, workload, hop):
