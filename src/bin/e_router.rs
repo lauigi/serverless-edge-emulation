@@ -14,7 +14,6 @@ struct Computer {
     port: u16,
     hops: u32,
     expiry: SystemTime,
-    last_update: f64,
     backoff: f64,
 }
 
@@ -53,14 +52,14 @@ impl Router {
     fn new(computers: Vec<Computer>, algorithm: Algorithm) -> Self {
         let weight_table = computers.iter().map(|c| (c.port, 0.0)).collect();
         let delta_table = computers.iter().map(|c| (c.port, 0.0)).collect();
-        // let active_set = computers.iter().map(|c| c.port).collect();
+        let active_set = computers.iter().map(|c| c.port).collect();
         let b_min = 1.0; // Set appropriate minimum backoff value
         Router {
             computers,
             algorithm,
             weight_table,
             delta_table,
-            active_set: HashSet::new(),
+            active_set,
             probed_set: HashSet::new(),
             b_min,
         }
@@ -176,8 +175,7 @@ impl Router {
                         .unwrap_or(0.0);
                     println!("Min active weight: {}", min_active_weight);
 
-                    if latency.as_secs_f64() <= 2.0 * min_active_weight || self.active_set.len() < 2
-                    {
+                    if latency.as_secs_f64() <= 2.0 * min_active_weight {
                         // Update all deltas in active set
                         let min_delta = self
                             .active_set
@@ -201,33 +199,11 @@ impl Router {
                     } else {
                         // Double backoff and update expiry
                         if let Some(computer) = self.computers.iter_mut().find(|c| c.port == port) {
-                            if computer.last_update < 0.0 {
-                                println!("First update for port {}", port);
-                                self.active_set.insert(port);
-                            } else {
-                                println!("Doubling backoff for port {}", port);
-                                // max backoff is 30 seconds from the paper source code
-                                computer.backoff = (2.0 * computer.backoff).min(30.0);
-                                computer.expiry =
-                                    SystemTime::now() + Duration::from_secs_f64(computer.backoff);
-                                let now_f64 = SystemTime::now()
-                                    .duration_since(SystemTime::UNIX_EPOCH)
-                                    .unwrap()
-                                    .as_secs_f64();
-                                if (now_f64 - computer.last_update) >= computer.backoff {
-                                    println!("Reprobing port {}", port);
-                                    computer.last_update = -1.0;
-                                    let min_delta = self
-                                        .active_set
-                                        .iter()
-                                        .map(|p| self.delta_table[p])
-                                        .min_by(|a, b| a.partial_cmp(b).unwrap())
-                                        .unwrap_or(0.0);
-                                    self.delta_table.insert(port, min_delta);
-                                    self.probed_set.insert(port);
-                                    self.active_set.insert(port);
-                                }
-                            }
+                            println!("Doubling backoff for port {}", port);
+                            // max backoff is 30 seconds from the paper source code
+                            computer.backoff = (2.0 * computer.backoff).min(30.0);
+                            computer.expiry =
+                                SystemTime::now() + Duration::from_secs_f64(computer.backoff);
                         }
                     }
                 } else {
@@ -253,12 +229,6 @@ impl Router {
                     if self.weight_table[&port] > 2.0 * min_active_weight {
                         self.active_set.remove(&port);
                     }
-                }
-                if let Some(computer) = self.computers.iter_mut().find(|c| c.port == port) {
-                    computer.last_update = SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs_f64();
                 }
             }
 
@@ -297,7 +267,6 @@ fn main() -> std::io::Result<()> {
                 hops: parts[1].parse().unwrap(),
                 expiry: SystemTime::now(),
                 backoff: 2.0,
-                last_update: -1.0,
             }
         })
         .collect();
